@@ -16,7 +16,7 @@ exports.SubscribeToMessage = exports.CreateChannel = exports.FormateData = expor
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const amqplib_1 = require("amqplib");
-const { APP_SECRET, EXCHANGE_NAME, MESSAGE_BROKER_URL, QUEUE_NAME, USER_BINDING_KEY, } = require("../config");
+const index_1 = require("../config/index");
 //Utility functions
 const GenerateSalt = () => __awaiter(void 0, void 0, void 0, function* () {
     return yield bcryptjs_1.default.genSalt();
@@ -32,7 +32,9 @@ const ValidatePassword = (enteredPassword, savedPassword, salt) => __awaiter(voi
 });
 exports.ValidatePassword = ValidatePassword;
 const GenerateSignature = (payload) => __awaiter(void 0, void 0, void 0, function* () {
-    return yield jsonwebtoken_1.default.sign(payload, APP_SECRET, { expiresIn: "2h" });
+    const appSecret = index_1.CONFIG.APP_SECRET;
+    if (appSecret !== undefined)
+        return yield jsonwebtoken_1.default.sign(payload, appSecret, { expiresIn: "2h" });
 });
 exports.GenerateSignature = GenerateSignature;
 const ValidateSignature = (req) => __awaiter(void 0, void 0, void 0, function* () {
@@ -40,9 +42,12 @@ const ValidateSignature = (req) => __awaiter(void 0, void 0, void 0, function* (
     if (signature) {
         try {
             const token = signature.split(" ")[1];
-            const payload = yield jsonwebtoken_1.default.verify(token, APP_SECRET);
-            req.user = payload;
-            return true;
+            const appSecret = index_1.CONFIG.APP_SECRET;
+            if (appSecret !== undefined) {
+                const payload = yield jsonwebtoken_1.default.verify(token, appSecret);
+                req.user = payload;
+                return true;
+            }
         }
         catch (error) {
             // Handle verification error
@@ -65,10 +70,16 @@ exports.FormateData = FormateData;
 // Create a channel
 const CreateChannel = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const connection = yield (0, amqplib_1.connect)(MESSAGE_BROKER_URL);
-        const channel = yield connection.createChannel();
-        yield channel.assertExchange(EXCHANGE_NAME, "direct", { durable: false });
-        return channel;
+        const messageBrokerURL = index_1.CONFIG.MESSAGE_BROKER_URL;
+        if (messageBrokerURL !== undefined) {
+            const connection = yield (0, amqplib_1.connect)(messageBrokerURL);
+            const channel = yield connection.createChannel();
+            yield channel.assertExchange(index_1.CONFIG.EXCHANGE_NAME, "direct", { durable: false });
+            return channel;
+        }
+        else {
+            throw new Error('Message broker URL is undefined.');
+        }
     }
     catch (error) {
         throw error;
@@ -78,8 +89,8 @@ exports.CreateChannel = CreateChannel;
 // Subscribe to message broker
 const SubscribeToMessage = (channel, service) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const appQueue = yield channel.assertQueue(QUEUE_NAME);
-        yield channel.bindQueue(appQueue.queue, EXCHANGE_NAME, USER_BINDING_KEY);
+        const appQueue = yield channel.assertQueue(index_1.CONFIG.QUEUE_NAME);
+        yield channel.bindQueue(appQueue.queue, index_1.CONFIG.EXCHANGE_NAME, index_1.CONFIG.USER_BINDING_KEY);
         yield channel.consume(appQueue.queue, (data) => {
             console.log("---received data in user service-----");
             console.log(data === null || data === void 0 ? void 0 : data.content.toString());

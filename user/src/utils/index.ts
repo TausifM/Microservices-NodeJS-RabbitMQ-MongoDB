@@ -1,14 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { connect, Connection, Channel, ConsumeMessage } from "amqplib";
-
-const {
-  APP_SECRET,
-  EXCHANGE_NAME,
-  MESSAGE_BROKER_URL,
-  QUEUE_NAME,
-  USER_BINDING_KEY,
-} = require("../config");
+import { CONFIG } from '../config/index';
 
 //Utility functions
 export const GenerateSalt = async (): Promise<string> => {
@@ -31,8 +24,9 @@ export const ValidatePassword = async (
   return (await GeneratePassword(enteredPassword, salt)) === savedPassword;
 };
 
-export const GenerateSignature = async (payload: any): Promise<string> => {
-  return await jwt.sign(payload, APP_SECRET, { expiresIn: "2h" });
+export const GenerateSignature = async (payload: any): Promise<string | undefined> => {
+  const appSecret = CONFIG.APP_SECRET
+  if(appSecret !== undefined) return await jwt.sign(payload, appSecret, { expiresIn: "2h" });
 };
 
 export const ValidateSignature = async (req: any): Promise<boolean> => {
@@ -41,9 +35,12 @@ export const ValidateSignature = async (req: any): Promise<boolean> => {
   if (signature) {
     try {
       const token = signature.split(" ")[1];
-      const payload = await jwt.verify(token, APP_SECRET);
-      req.user = payload;
-      return true;
+      const appSecret = CONFIG.APP_SECRET
+      if(appSecret !== undefined) {
+        const payload = await jwt.verify(token, appSecret);
+        req.user = payload;
+        return true;
+      }
     } catch (error) {
       // Handle verification error
       return false;
@@ -66,10 +63,15 @@ export const FormateData = (data: any): { data: any } => {
 // Create a channel
 export const CreateChannel = async (): Promise<Channel> => {
   try {
-    const connection: Connection = await connect(MESSAGE_BROKER_URL);
-    const channel: Channel = await connection.createChannel();
-    await channel.assertExchange(EXCHANGE_NAME, "direct",  { durable: false });
-    return channel;
+    const messageBrokerURL = CONFIG.MESSAGE_BROKER_URL
+    if(messageBrokerURL !== undefined) {
+       const connection: Connection = await connect(messageBrokerURL);
+       const channel: Channel = await connection.createChannel();
+       await channel.assertExchange(CONFIG.EXCHANGE_NAME, "direct",  { durable: false });
+       return channel;
+    } else{
+      throw new Error('Message broker URL is undefined.');
+    }
   } catch (error) {
     throw error;
   }
@@ -81,8 +83,8 @@ export const SubscribeToMessage = async (
   service: any
 ): Promise<void> => {
   try {
-    const appQueue = await channel.assertQueue(QUEUE_NAME);
-    await channel.bindQueue(appQueue.queue, EXCHANGE_NAME, USER_BINDING_KEY);
+    const appQueue = await channel.assertQueue(CONFIG.QUEUE_NAME);
+    await channel.bindQueue(appQueue.queue, CONFIG.EXCHANGE_NAME, CONFIG.USER_BINDING_KEY);
     await channel.consume(appQueue.queue, (data : ConsumeMessage | null) => {
       console.log("---received data in user service-----");
       console.log(data?.content.toString());
